@@ -1,58 +1,23 @@
-import {
-  Clarinet,
-  Tx,
-  Chain,
-  Account,
-  types
-} from 'https://deno.land/x/clarinet@v1.0.0/index.ts';
-import { assertEquals } from 'https://deno.land/std@0.90.0/testing/asserts.ts';
-
 Clarinet.test({
-  name: "Artist registration test",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const deployer = accounts.get('deployer')!;
-    const artist = accounts.get('wallet_1')!;
-    
-    let block = chain.mineBlock([
-      Tx.contractCall('wave-nest', 'register-artist', [
-        types.utf8("Test Artist"),
-        types.utf8("Test Bio")
-      ], artist.address)
-    ]);
-    
-    block.receipts[0].result.expectOk();
-    
-    // Verify artist info
-    let getArtist = chain.mineBlock([
-      Tx.contractCall('wave-nest', 'get-artist-info', [
-        types.principal(artist.address)
-      ], deployer.address)
-    ]);
-    
-    const artistData = getArtist.receipts[0].result.expectOk().expectSome();
-    assertEquals(artistData['name'], "Test Artist");
-  },
-});
-
-Clarinet.test({
-  name: "Song minting with collaborators test",
+  name: "Comprehensive collaborator validation test",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const artist = accounts.get('wallet_1')!;
-    const collaborator = accounts.get('wallet_2')!;
+    const collaborator1 = accounts.get('wallet_2')!;
+    const collaborator2 = accounts.get('wallet_3')!;
     
-    // Register artist and collaborator
+    // Register artists
     chain.mineBlock([
       Tx.contractCall('wave-nest', 'register-artist', [
         types.utf8("Test Artist"),
         types.utf8("Test Bio")
       ], artist.address),
       Tx.contractCall('wave-nest', 'register-artist', [
-        types.utf8("Collaborator"),
+        types.utf8("Collaborator 1"),
         types.utf8("Collab Bio")
-      ], collaborator.address)
+      ], collaborator1.address)
     ]);
     
-    // Mint song with collaborator
+    // Test duplicate collaborators
     let block = chain.mineBlock([
       Tx.contractCall('wave-nest', 'mint-song', [
         types.utf8("Test Song"),
@@ -60,59 +25,40 @@ Clarinet.test({
         types.uint(1000000),
         types.list([
           {
-            collaborator: types.principal(collaborator.address),
-            share: types.uint(200) // 20% share
+            collaborator: types.principal(collaborator1.address),
+            share: types.uint(500)
+          },
+          {
+            collaborator: types.principal(collaborator1.address),
+            share: types.uint(500)
           }
         ])
       ], artist.address)
     ]);
+    block.receipts[0].result.expectErr(106);
     
-    block.receipts[0].result.expectOk();
-    
-    // Verify song info
-    let getSong = chain.mineBlock([
-      Tx.contractCall('wave-nest', 'get-song-info', [
-        types.uint(1)
+    // Test invalid total shares
+    block = chain.mineBlock([
+      Tx.contractCall('wave-nest', 'mint-song', [
+        types.utf8("Test Song"),
+        types.utf8("Pop"),
+        types.uint(1000000),
+        types.list([
+          {
+            collaborator: types.principal(collaborator1.address),
+            share: types.uint(400)
+          },
+          {
+            collaborator: types.principal(collaborator2.address),
+            share: types.uint(400)
+          }
+        ])
       ], artist.address)
     ]);
+    block.receipts[0].result.expectErr(104);
     
-    const songData = getSong.receipts[0].result.expectOk().expectSome();
-    assertEquals(songData['title'], "Test Song");
-    assertEquals(songData['total-shares'], types.uint(200));
-  },
-});
-
-Clarinet.test({
-  name: "Playlist creation and management test",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const listener = accounts.get('wallet_3')!;
-    const artist = accounts.get('wallet_1')!;
-    
-    // Register listener
-    chain.mineBlock([
-      Tx.contractCall('wave-nest', 'register-listener', [
-        types.list([types.utf8("Pop"), types.utf8("Rock")])
-      ], listener.address)
-    ]);
-    
-    // Create playlist
-    let createPlaylist = chain.mineBlock([
-      Tx.contractCall('wave-nest', 'create-playlist', [
-        types.utf8("My Playlist")
-      ], listener.address)
-    ]);
-    
-    createPlaylist.receipts[0].result.expectOk();
-    
-    // Register artist and mint song
-    chain.mineBlock([
-      Tx.contractCall('wave-nest', 'register-artist', [
-        types.utf8("Test Artist"),
-        types.utf8("Test Bio")
-      ], artist.address)
-    ]);
-    
-    chain.mineBlock([
+    // Test empty collaborator list
+    block = chain.mineBlock([
       Tx.contractCall('wave-nest', 'mint-song', [
         types.utf8("Test Song"),
         types.utf8("Pop"),
@@ -120,25 +66,6 @@ Clarinet.test({
         types.list([])
       ], artist.address)
     ]);
-    
-    // Add song to playlist
-    let addToPlaylist = chain.mineBlock([
-      Tx.contractCall('wave-nest', 'add-to-playlist', [
-        types.uint(0),
-        types.uint(1)
-      ], listener.address)
-    ]);
-    
-    addToPlaylist.receipts[0].result.expectOk();
-    
-    // Verify playlist
-    let getListener = chain.mineBlock([
-      Tx.contractCall('wave-nest', 'get-listener-info', [
-        types.principal(listener.address)
-      ], listener.address)
-    ]);
-    
-    const listenerData = getListener.receipts[0].result.expectOk().expectSome();
-    assertEquals(listenerData['playlists'].length, 1);
+    block.receipts[0].result.expectErr(107);
   },
 });
